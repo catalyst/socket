@@ -205,6 +205,27 @@ final class TcpServer extends EventEmitter implements ServerInterface
         $that = $this;
         $this->loop->addReadStream($this->master, function ($master) use ($that) {
             $newSocket = @stream_socket_accept($master);
+
+            /**
+             * We need to fork the process in order to have one process per
+             * connected client for performance and session separation
+             * Due to class dependencies and the lack of an extension points
+             * this file had to be hacked ;(
+             */
+            // ===== VVV START OF ADDITIONAL CODE VVV =====
+            $pid = pcntl_fork();
+            if ($pid == -1) die('forking failed');
+
+            if ($pid) {
+                // parent process
+                fclose($newSocket);
+                return;
+            } else {
+                // client process
+                fclose($master);
+            }
+            // ===== ^^^ END OF ADDITIONAL CODE ^^^ =====
+
             if (false === $newSocket) {
                 $that->emit('error', array(new RuntimeException('Error accepting new connection')));
 
