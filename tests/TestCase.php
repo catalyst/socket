@@ -10,7 +10,7 @@ use PHPUnit\Framework\TestCase as BaseTestCase;
 
 class TestCase extends BaseTestCase
 {
-    protected function expectCallableExactly($amount)
+    public function expectCallableExactly($amount)
     {
         $mock = $this->createCallableMock();
         $mock
@@ -97,5 +97,22 @@ class TestCase extends BaseTestCase
             // legacy PHPUnit 4
             parent::setExpectedException($exception, $exceptionMessage, $exceptionCode);
         }
+    }
+
+    protected function supportsTls13()
+    {
+        // TLS 1.3 is supported as of OpenSSL 1.1.1 (https://www.openssl.org/blog/blog/2018/09/11/release111/)
+        // The OpenSSL library version can only be obtained by parsing output from phpinfo().
+        // OPENSSL_VERSION_TEXT refers to header version which does not necessarily match actual library version
+        // see php -i | grep OpenSSL
+        // OpenSSL Library Version => OpenSSL 1.1.1  11 Sep 2018
+        ob_start();
+        phpinfo(INFO_MODULES);
+        $info = ob_get_clean();
+
+        if (preg_match('/OpenSSL Library Version => OpenSSL ([\d\.]+)/', $info, $match)) {
+            return version_compare($match[1], '1.1.1', '>=');
+        }
+        return false;
     }
 }

@@ -2,12 +2,13 @@
 
 namespace React\Tests\Socket;
 
+use Clue\React\Block;
 use React\EventLoop\Factory;
+use React\Promise\Promise;
+use React\Socket\ConnectionInterface;
 use React\Socket\Server;
 use React\Socket\TcpConnector;
 use React\Socket\UnixConnector;
-use Clue\React\Block;
-use React\Socket\ConnectionInterface;
 
 class ServerTest extends TestCase
 {
@@ -50,6 +51,10 @@ class ServerTest extends TestCase
 
     public function testConstructorCreatesExpectedUnixServer()
     {
+        if (!in_array('unix', stream_get_transports())) {
+            $this->markTestSkipped('Unix domain sockets (UDS) not supported on your platform (Windows?)');
+        }
+
         $loop = Factory::create();
 
         $server = new Server($this->getRandomSocketUri(), $loop);
@@ -64,6 +69,28 @@ class ServerTest extends TestCase
         $server->close();
     }
 
+    public function testConstructorThrowsForExistingUnixPath()
+    {
+        if (!in_array('unix', stream_get_transports())) {
+            $this->markTestSkipped('Unix domain sockets (UDS) not supported on your platform (Windows?)');
+        }
+
+        $loop = Factory::create();
+
+        try {
+            $server = new Server('unix://' . __FILE__, $loop);
+            $this->fail();
+        } catch (\RuntimeException $e) {
+            if ($e->getCode() === 0) {
+                // Zend PHP does not currently report a sane error
+                $this->assertStringEndsWith('Unknown error', $e->getMessage());
+            } else {
+                $this->assertEquals(SOCKET_EADDRINUSE, $e->getCode());
+                $this->assertStringEndsWith('Address already in use', $e->getMessage());
+            }
+        }
+    }
+
     public function testEmitsConnectionForNewConnection()
     {
         $loop = Factory::create();
@@ -71,9 +98,13 @@ class ServerTest extends TestCase
         $server = new Server(0, $loop);
         $server->on('connection', $this->expectCallableOnce());
 
+        $peer = new Promise(function ($resolve, $reject) use ($server) {
+            $server->on('connection', $resolve);
+        });
+
         $client = stream_socket_client($server->getAddress());
 
-        Block\sleep(0.1, $loop);
+        Block\await($peer, $loop, self::TIMEOUT);
     }
 
     public function testDoesNotEmitConnectionForNewConnectionToPausedServer()
@@ -97,12 +128,15 @@ class ServerTest extends TestCase
         $server->pause();
         $server->on('connection', $this->expectCallableOnce());
 
+        $peer = new Promise(function ($resolve, $reject) use ($server) {
+            $server->on('connection', $resolve);
+        });
+
         $client = stream_socket_client($server->getAddress());
 
-        Block\sleep(0.1, $loop);
-
         $server->resume();
-        Block\sleep(0.1, $loop);
+
+        Block\await($peer, $loop, self::TIMEOUT);
     }
 
     public function testDoesNotAllowConnectionToClosedServer()
@@ -115,8 +149,6 @@ class ServerTest extends TestCase
         $server->close();
 
         $client = @stream_socket_client($address);
-
-        Block\sleep(0.1, $loop);
 
         $this->assertFalse($client);
     }
@@ -134,19 +166,21 @@ class ServerTest extends TestCase
             'backlog' => 4
         ));
 
-        $all = null;
-        $server->on('connection', function (ConnectionInterface $conn) use (&$all) {
-            $all = stream_context_get_options($conn->stream);
+        $peer = new Promise(function ($resolve, $reject) use ($server) {
+            $server->on('connection', function (ConnectionInterface $connection) use ($resolve) {
+                $resolve(stream_context_get_options($connection->stream));
+            });
         });
+
 
         $client = stream_socket_client($server->getAddress());
 
-        Block\sleep(0.1, $loop);
+        $all = Block\await($peer, $loop, self::TIMEOUT);
 
         $this->assertEquals(array('socket' => array('backlog' => 4)), $all);
     }
 
-    public function testDoesNotEmitSecureConnectionForNewPlainConnection()
+    public function testDoesNotEmitSecureConnectionForNewPlaintextConnectionThatIsIdle()
     {
         if (!function_exists('stream_socket_enable_crypto')) {
             $this->markTestSkipped('Not supported on your platform (outdated HHVM?)');

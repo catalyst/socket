@@ -96,11 +96,12 @@ class ConnectorTest extends TestCase
         $loop = $this->getMockBuilder('React\EventLoop\LoopInterface')->getMock();
 
         $promise = new Promise(function () { });
-        $resolver = $this->getMockBuilder('React\Dns\Resolver\Resolver')->disableOriginalConstructor()->getMock();
+        $resolver = $this->getMockBuilder('React\Dns\Resolver\ResolverInterface')->getMock();
         $resolver->expects($this->once())->method('resolve')->with('google.com')->willReturn($promise);
 
         $connector = new Connector($loop, array(
-            'dns' => $resolver
+            'dns' => $resolver,
+            'happy_eyeballs' => false,
         ));
 
         $connector->connect('google.com:80');
@@ -111,7 +112,7 @@ class ConnectorTest extends TestCase
         $loop = $this->getMockBuilder('React\EventLoop\LoopInterface')->getMock();
 
         $promise = new Promise(function ($resolve) { $resolve('127.0.0.1'); });
-        $resolver = $this->getMockBuilder('React\Dns\Resolver\Resolver')->disableOriginalConstructor()->getMock();
+        $resolver = $this->getMockBuilder('React\Dns\Resolver\ResolverInterface')->getMock();
         $resolver->expects($this->once())->method('resolve')->with('google.com')->willReturn($promise);
 
         $promise = new Promise(function () { });
@@ -120,7 +121,8 @@ class ConnectorTest extends TestCase
 
         $connector = new Connector($loop, array(
             'tcp' => $tcp,
-            'dns' => $resolver
+            'dns' => $resolver,
+            'happy_eyeballs' => false,
         ));
 
         $connector->connect('tcp://google.com:80');
